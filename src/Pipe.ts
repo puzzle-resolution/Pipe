@@ -469,13 +469,17 @@ export default class Pipe {
             degreeMap.set(p, degreeMap.has(p) ? degreeMap.get(p)! + 1 : 1);
             degreeMap.set(q, degreeMap.has(q) ? degreeMap.get(q)! + 1 : 1);
         }
-        let exportPoints = new Set<string>(); //`${p.x}_${p.y}`
+        let exportPoints = new Set<{ position: Position, direction: Direction }>();
         for (let [pStr, degree] of degreeMap.entries()) {
             const [x, y] = pStr.split('_').map(i => +i);
-            const status = states[x][y];
-            const directionTotal = { [BlockTypeEnum.Sharp1]: 1, [BlockTypeEnum.Sharp2]: 2, [BlockTypeEnum.Sharp3]: 2, [BlockTypeEnum.Sharp4]: 3 }[status.sharp];
+            const state = states[x][y];
+            const directionTotal = { [BlockTypeEnum.Sharp1]: 1, [BlockTypeEnum.Sharp2]: 2, [BlockTypeEnum.Sharp3]: 2, [BlockTypeEnum.Sharp4]: 3 }[state.sharp];
             if (degree < directionTotal) {
-                exportPoints.add(formatPoint({ x, y }));
+                const { up, down, left, right } = state.status;
+                const dirMap: Direction[] = ['up', 'left', 'down', 'right'];
+                [up, down, left, right].map((v, ind) => v === undefined ? ind : undefined).filter(i => i).map(index => {
+                    exportPoints.add({ position: { x, y }, direction: dirMap[index!] });
+                })
             }
         }
 
