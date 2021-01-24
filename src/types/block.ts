@@ -8,7 +8,6 @@ export const enum BlockTypeEnum {
     Sharp4, //定义为 3个度的节点形状
 }
 
-export type BlockStauts = 0 | 1 | 2 | 3;
 
 
 export interface Position {
