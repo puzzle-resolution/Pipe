@@ -65,8 +65,7 @@ export default class Pipe {
             //去重
             if (queue.has(queueKey)) { continue; }
             //校验位置是否完成
-            // if (this.isSolvedPosition(data, this.clonePosition({ x, y }))) { continue; }
-            if (data.blockState[x][y].locked) { continue; }
+            if (this.isSolvedPosition(data, this.clonePosition({ x, y }))) { continue; }
             //添加到队列
             queue.add(queueKey);
         }
@@ -251,7 +250,7 @@ export default class Pipe {
                 //若冲突，抛出错误
                 //否则 若相邻节点未完成，则添加相邻节点至队列
                 if (this.checkDirectionLink(data, p, position)) {
-                    if (!blockState[position.x][position.y].locked) {
+                    if (!this.isSolvedPosition(data, position)) {
                         this.appendToUpdateQueue(data, queue, [this.clonePosition(position)]);
                     }
                 } else { return false; }
