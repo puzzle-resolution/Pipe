@@ -10,17 +10,16 @@ export default {
             typescript: require("typescript")
         }),
         sourceMaps(),
-        // terser({
-        //     compress: {
-        //         // drop_console: true,
-        //         // pure_funcs: ["console.log", "console.error"],
-        //     },
-        //     format: {
-        //         beautify: true,
-        //     },
-        //     keep_classnames: true,
-        //     keep_fnames: true,
-        // }),
+        terser({
+            compress: {
+                pure_funcs: ["console.log", "console.error"],
+            },
+            format: {
+                beautify: true,
+            },
+            keep_classnames: true,
+            keep_fnames: true,
+        }),
     ],
     output: [
         {

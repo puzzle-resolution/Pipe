@@ -4,11 +4,11 @@ import { BlockTypeEnum, InitBlock, Position } from './types/block';
 import { BlockStatus, State } from './types/state';
 
 
-const mockTask = true; //mock调试模式
+const mockTask = false; //mock调试模式
 const mockData = {
-    taskKey: "258e19cbb1dd14a4",
+    taskKey: "3229a9155ceb3a31",
     puzzleSize: [4, 4],
-    isCrossMap: true,
+    isCrossMap: false,
 };
 
 // window.useRobot = true; //默认启用robot
@@ -52,6 +52,20 @@ export default class Pipe {
     leftPosition = (p: Position) => this.clonePosition({ x: p.x, y: p.y == 0 ? this.graph[0].length - 1 : p.y - 1 })
     rightPosition = (p: Position) => this.clonePosition({ x: p.x, y: p.y == this.graph[0].length - 1 ? 0 : p.y + 1 })
 
+    oppositeDirection = (direction: Direction) => {
+        const directions: Direction[] = ['up', 'left', 'down', 'right'];
+        return directions[(directions.indexOf(direction) + 2) % 4];
+    }
+    directionPositionReducer = (direction: Direction) => {
+        switch (direction) {
+            case 'up': return this.topPosition;
+            case 'down': return this.bottomPosition;
+            case 'left': return this.leftPosition;
+            case 'right': return this.rightPosition;
+            default: throw new Error("direction param illegal assert");
+        }
+    }
+
     cloneState = function <T>(arr: T[][]) { //深拷贝二维数组
         return arr.map(a => a.map(b => b));
     }
@@ -90,21 +104,40 @@ export default class Pipe {
     }
 
     lockPointDirectionStatus = (direction: Direction, data: State, queue: QueueType, p: Position, status: boolean) => {
-        const originStatus = data.blockState[p.x][p.y].status[direction];
-        if (originStatus === undefined) {
-            data.blockState[p.x][p.y].status[direction] = status;
-            this.appendToUpdateQueue(data, queue, [this.clonePosition(p)]);
+        const q = this.directionPositionReducer(direction)(p);
+        const qDirection = this.oppositeDirection(direction);
+        const pStatus = data.blockState[p.x][p.y].status[direction],
+            qStatus = data.blockState[q.x][q.y].status[qDirection];
+        if (pStatus !== undefined && qStatus !== undefined && pStatus !== qStatus) { return false; }
+        else if ((pStatus !== undefined && pStatus !== status) || (qStatus !== undefined && qStatus !== status)) { return false; }
+        else {
+            if (pStatus === undefined) {
+                data.blockState[p.x][p.y].status[direction] = status;
+                this.appendToUpdateQueue(data, queue, [this.clonePosition(p)]);
+            }
+            if (qStatus === undefined) {
+                data.blockState[q.x][q.y].status[qDirection] = status;
+                this.appendToUpdateQueue(data, queue, [this.clonePosition(q)]);
+            }
             return true;
-        } else if (originStatus === status) {
-            return true;
-        } else {
-            return false;
         }
     }
     lockPointUpStatus = this.lockPointDirectionStatus.bind(null, 'up');
     lockPointDownStatus = this.lockPointDirectionStatus.bind(null, 'down');
     lockPointLeftStatus = this.lockPointDirectionStatus.bind(null, 'left');
     lockPointRightStatus = this.lockPointDirectionStatus.bind(null, 'right');
+    disableNeighborLink = (p: Position, q: Position, data: State, queue: QueueType) => { //禁用相邻两节点间连接
+        if (this.checkPositionEqual(this.topPosition(p), q)) {
+            return this.lockPointUpStatus(data, queue, p, false);
+        } else if (this.checkPositionEqual(this.bottomPosition(p), q)) {
+            return this.lockPointDownStatus(data, queue, p, false);
+        } if (this.checkPositionEqual(this.leftPosition(p), q)) {
+            return this.lockPointLeftStatus(data, queue, p, false);
+        } if (this.checkPositionEqual(this.rightPosition(p), q)) {
+            return this.lockPointRightStatus(data, queue, p, false);
+        }
+        throw new Error('Nodes are not adjacent assert');
+    }
 
     isSolvedPosition = (data: State, p: Position): boolean => {
         const status = data.blockState[p.x][p.y]
@@ -145,35 +178,42 @@ export default class Pipe {
             leftPosition = this.leftPosition(p), leftState = data.blockState[leftPosition.x][leftPosition.y],
             rightPosition = this.rightPosition(p), rightState = data.blockState[rightPosition.x][rightPosition.y];
         if (upState.status.down !== undefined) {
-            if (up === undefined) { this.lockPointUpStatus(data, queue, p, upState.status.down) }
+            if (up === undefined) {
+                if (!this.lockPointUpStatus(data, queue, p, upState.status.down)) { return false; }
+            }
             else if (up !== upState.status.down) { return false;/*throw new Error('direction status link assert')*/ }
         }
         if (downState.status.up !== undefined) {
-            if (down === undefined) { this.lockPointDownStatus(data, queue, p, downState.status.up) }
+            if (down === undefined) {
+                if (!this.lockPointDownStatus(data, queue, p, downState.status.up)) { return false; }
+            }
             else if (down !== downState.status.up) { return false; }
         }
         if (leftState.status.right !== undefined) {
-            if (left === undefined) { this.lockPointLeftStatus(data, queue, p, leftState.status.right) }
+            if (left === undefined) {
+                if (!this.lockPointLeftStatus(data, queue, p, leftState.status.right)) { return false; }
+            }
             else if (left !== leftState.status.right) { return false; }
         }
         if (rightState.status.left !== undefined) {
-            if (right === undefined) { this.lockPointRightStatus(data, queue, p, rightState.status.left) }
+            if (right === undefined) {
+                if (!this.lockPointRightStatus(data, queue, p, rightState.status.left)) { return false; }
+            }
             else if (right !== rightState.status.left) { return false; }
         }
         return true;
     }
     updatePoint = (data: State, queue: QueueType, p: Position): boolean => { //更新节点状态；更新节点方向状态；处理四周节点
+        //判断节点是否完成
+        if (this.isSolvedPosition(data, p)) { return true; }
+
+        // //同步四周节点的方向状态 //改为lock时同步
+        // if (!this.asynDirectionLink(data, queue, p)) { return false; }
+
         const { blockState } = data;
         const { x, y } = p;
         const state = blockState[x][y];
         const { sharp, status: { up, down, left, right } } = state;
-
-        //判断节点是否完成
-        if (this.isSolvedPosition(data, p)) { return true; }
-
-        //同步四周节点的方向状态
-        if (!this.asynDirectionLink(data, queue, p)) { return false; }
-
         //根据当前状态，更新等价的方向节点状态
         const directionTotal = { [BlockTypeEnum.Sharp1]: 1, [BlockTypeEnum.Sharp2]: 2, [BlockTypeEnum.Sharp3]: 2, [BlockTypeEnum.Sharp4]: 3 }[sharp];
         const directCurrTrueCnt = [up, left, down, right].filter(i => i === true).length;
@@ -186,20 +226,20 @@ export default class Pipe {
             if (sharp === BlockTypeEnum.Sharp2 && (up !== down || left !== right)) { return false; }
             if (sharp === BlockTypeEnum.Sharp3 && (up && down || left && right)) { return false; }
             //更新其余未完成的方向状态为 false
-            up === undefined && this.lockPointUpStatus(data, queue, p, false);
-            down === undefined && this.lockPointDownStatus(data, queue, p, false);
-            left === undefined && this.lockPointLeftStatus(data, queue, p, false);
-            right === undefined && this.lockPointRightStatus(data, queue, p, false);
+            if (up === undefined) if (!this.lockPointUpStatus(data, queue, p, false)) { return false; }
+            if (down === undefined) if (!this.lockPointDownStatus(data, queue, p, false)) { return false; }
+            if (left === undefined) if (!this.lockPointLeftStatus(data, queue, p, false)) { return false; }
+            if (right === undefined) if (!this.lockPointRightStatus(data, queue, p, false)) { return false; }
             //更新节点完成标志
             blockState[x][y].locked = true;
         } else if (directCurrFalseCnt === 4 - directionTotal) {
             if (sharp === BlockTypeEnum.Sharp2 && ((up === false) !== (down === false) || (left === false) !== (right === false))) { return false; }
             if (sharp === BlockTypeEnum.Sharp3 && (up === false && down === false || left === false && right === false)) { return false; }
             //更新其余未完成的方向状态为 true
-            up === undefined && this.lockPointUpStatus(data, queue, p, true);
-            down === undefined && this.lockPointDownStatus(data, queue, p, true);
-            left === undefined && this.lockPointLeftStatus(data, queue, p, true);
-            right === undefined && this.lockPointRightStatus(data, queue, p, true);
+            if (up === undefined) if (!this.lockPointUpStatus(data, queue, p, true)) { return false; }
+            if (down === undefined) if (!this.lockPointDownStatus(data, queue, p, true)) { return false; }
+            if (left === undefined) if (!this.lockPointLeftStatus(data, queue, p, true)) { return false; }
+            if (right === undefined) if (!this.lockPointRightStatus(data, queue, p, true)) { return false; }
             //更新节点完成标志
             blockState[x][y].locked = true;
         } else {
@@ -213,27 +253,27 @@ export default class Pipe {
                 // directCurrFalseCnt: 0-1
                 if (directCurrTrueCnt == 1) {
                     const truePos = [up, left, down, right].findIndex(i => i === true);
-                    this.lockPointDirectionStatus(dirMap[(truePos + 2) % 4], data, queue, p, true);
-                    this.lockPointDirectionStatus(dirMap[(truePos + 1) % 4], data, queue, p, false);
-                    this.lockPointDirectionStatus(dirMap[(truePos + 3) % 4], data, queue, p, false);
+                    if (!this.lockPointDirectionStatus(dirMap[(truePos + 2) % 4], data, queue, p, true)) { return false; }
+                    if (!this.lockPointDirectionStatus(dirMap[(truePos + 1) % 4], data, queue, p, false)) { return false; }
+                    if (!this.lockPointDirectionStatus(dirMap[(truePos + 3) % 4], data, queue, p, false)) { return false; }
                     //更新节点完成标志
                     blockState[x][y].locked = true;
                 } else if (directCurrFalseCnt == 1) {
                     const falsePos = [up, left, down, right].findIndex(i => i === false);
-                    this.lockPointDirectionStatus(dirMap[(falsePos + 2) % 4], data, queue, p, false);
-                    this.lockPointDirectionStatus(dirMap[(falsePos + 1) % 4], data, queue, p, true);
-                    this.lockPointDirectionStatus(dirMap[(falsePos + 3) % 4], data, queue, p, true);
+                    if (!this.lockPointDirectionStatus(dirMap[(falsePos + 2) % 4], data, queue, p, false)) { return false; }
+                    if (!this.lockPointDirectionStatus(dirMap[(falsePos + 1) % 4], data, queue, p, true)) { return false; }
+                    if (!this.lockPointDirectionStatus(dirMap[(falsePos + 3) % 4], data, queue, p, true)) { return false; }
                     //更新节点完成标志
                     blockState[x][y].locked = true;
                 }
             } else if (sharp === BlockTypeEnum.Sharp3) {
                 if (directCurrFalseCnt == 1) {
                     const falsePos = [up, left, down, right].findIndex(i => i === false);
-                    this.lockPointDirectionStatus(dirMap[(falsePos + 2) % 4], data, queue, p, true);
+                    if (!this.lockPointDirectionStatus(dirMap[(falsePos + 2) % 4], data, queue, p, true)) { return false; }
                 }
                 if (directCurrTrueCnt == 1) {
                     const truePos = [up, left, down, right].findIndex(i => i === true);
-                    this.lockPointDirectionStatus(dirMap[(truePos + 2) % 4], data, queue, p, false);
+                    if (!this.lockPointDirectionStatus(dirMap[(truePos + 2) % 4], data, queue, p, false)) { return false; }
                 }
             } else if (sharp === BlockTypeEnum.Sharp4) {
                 // directCurrTrueCnt: 0-2
@@ -243,25 +283,25 @@ export default class Pipe {
         }
 
         //判断四周节点状态
-        const aroundPositions = this.aroundTRBL(p);
-        for (let position of aroundPositions.values()) {
-            if (position && this.checkBoundary(position)) {
-                //获取相邻节点，相邻方向的状态，判断等价情况
-                //若冲突，抛出错误
-                //否则 若相邻节点未完成，则添加相邻节点至队列
-                if (this.checkDirectionLink(data, p, position)) {
-                    if (!this.isSolvedPosition(data, position)) {
-                        this.appendToUpdateQueue(data, queue, [this.clonePosition(position)]);
-                    }
-                } else { return false; }
-            }
-        }
+        //性能太差，且存在死循环，改在lock位置只添加状态改变的节点
+        // const aroundPositions = this.aroundTRBL(p);
+        // for (let position of aroundPositions.values()) {
+        //     if (position && this.checkBoundary(position)) {
+        //         //获取相邻节点，相邻方向的状态，判断等价情况
+        //         //若冲突，抛出错误
+        //         //否则 若相邻节点未完成，则添加相邻节点至队列
+        //         if (this.checkDirectionLink(data, p, position)) {
+        //             if (!this.isSolvedPosition(data, position)) {
+        //                 this.appendToUpdateQueue(data, queue, [this.clonePosition(position)]);
+        //             }
+        //         } else { return false; }
+        //     }
+        // }
 
         return true;
     }
 
-    updateAroudState = (data: State): boolean => {// 初始化边界，非跨边模式的逻辑
-        let queue = new Set<string>();
+    updateAroudState = (data: State, queue: QueueType): boolean => {// 初始化边界，非跨边模式的逻辑
         for (let x of this.graph.keys()) {
             this.lockPointLeftStatus(data, queue, { x, y: 0 }, false);
             this.lockPointRightStatus(data, queue, { x, y: this.graph[0].length - 1 }, false);
@@ -270,13 +310,45 @@ export default class Pipe {
             this.lockPointUpStatus(data, queue, { x: 0, y }, false);
             this.lockPointDownStatus(data, queue, { x: this.graph.length - 1, y }, false);
         }
-        return this.clearUpdateQueue(data, queue);
+        return true;
     }
-    updateCutInCases = (data: State): boolean => {// 基于几类简单的规则，初始化部分节点状态，作为切入点
-        let queue = new Set<string>();
+    updateCutInCases = (data: State, queue: QueueType): boolean => {// 基于几类简单的规则，初始化部分节点状态，作为切入点
+        const { blockState } = data;
 
+        for (let x of this.graph.keys())
+            for (let y of this.graph[0].keys()) {
+                if (blockState[x][y].sharp === BlockTypeEnum.Sharp1) {
+                    //1. 相邻的Sharp1节点，不可连接
+                    this.aroundTRBL({ x, y }, (p) => blockState[p.x][p.y].sharp === BlockTypeEnum.Sharp1)
+                        .map(p => {
+                            if (p) if (!this.disableNeighborLink({ x, y }, p, data, queue)) { return false; }
+                        });
+                } else if (blockState[x][y].sharp === BlockTypeEnum.Sharp2) {
+                    //2. 形如 Sharp1 - Sharp2(*n) - Sharp1 不可连接
+                    const testIsDirectToSharp1 = (direction: Direction) => {
+                        const next = this.directionPositionReducer(direction);
+                        const p = { x, y };
+                        let q = this.clonePosition(p);
+                        do {
+                            q = next(q);
+                            if (this.checkPositionEqual(p, q)) { return true; } //整行或整列的sharp2的场景,出现封闭集合
 
-        return this.clearUpdateQueue(data, queue);
+                            const sharp = blockState[q.x][q.y].sharp;
+                            if (sharp === BlockTypeEnum.Sharp1) { return true; }
+                            else if (sharp === BlockTypeEnum.Sharp2) { }
+                            else { return false; }
+                        } while (1);
+                    }
+
+                    if (testIsDirectToSharp1('up') && testIsDirectToSharp1('down')) {
+                        if (!this.lockPointUpStatus(data, queue, { x, y }, false)) { return false; }
+                    } else if (testIsDirectToSharp1('left') && testIsDirectToSharp1('right')) {
+                        if (!this.lockPointLeftStatus(data, queue, { x, y }, false)) { return false; }
+                    }
+                }
+            }
+
+        return true;
     }
 
     recu = (data: State): State | false => {
@@ -295,18 +367,20 @@ export default class Pipe {
     solve = (): string => {
         const { blockState } = this.initState(this.graph);
         let result: State | false = { blockState, currentRecuIndex: 0 };
+        let queue = new Set<string>();
         if (!this.isCrossMap) { //非跨边模式，先初始化边界
-            this.updateAroudState(result);
+            this.updateAroudState(result, queue);
         }
+        this.updateCutInCases(result, queue);
+        this.clearUpdateQueue(result, queue);
+
         if (!this.verificate(result)) {
-            this.updateCutInCases(result);
-            if (!this.verificate(result)) {
-                result = this.recu({
-                    blockState: this.cloneState(blockState),
-                    currentRecuIndex: 0,
-                });
-            }
+            result = this.recu({
+                blockState: this.cloneState(blockState),
+                currentRecuIndex: 0,
+            });
         }
+
         return (this.answer = (result ? this.generaterAnawer(result.blockState) : 'failed'));
     }
 
@@ -517,10 +591,8 @@ function registerWorkerWithBlob(config: {
     }
 
 
-    const sizeUrlParam = +Object.fromEntries([...new URL(location.href).searchParams]).size || 0;
-    const isCrossMap = [10, 11, 12, 13, 14, 15, 16, 17, 18, 19].includes(sizeUrlParam);
     const onmessage = (e: MessageEvent) => {
-        const tasks = JSON.parse(e.data);
+        const { tasks, isCrossMap } = JSON.parse(e.data);
         const lightup = new Pipe(tasks, isCrossMap);
         const answer = lightup.solve();
         (postMessage as any)(answer);
@@ -531,13 +603,16 @@ function registerWorkerWithBlob(config: {
         ${Pipe.toString()} 
         onmessage=${onmessage.toString()}
     `;
+
+    const sizeUrlParam = +Object.fromEntries([...new URL(location.href).searchParams]).size || 0;
+    const isCrossMap = [10, 11, 12, 13, 14, 15, 16, 17, 18, 19].includes(sizeUrlParam);
     const taskKey: string = task;
     const tasks = Game.task;
     console.info('task', taskKey, tasks);
     const timer1 = new Date;
     registerWorkerWithBlob({
         scriptStr,
-        postMessageStr: JSON.stringify(tasks),
+        postMessageStr: JSON.stringify({ tasks, isCrossMap }),
         onMessage: (e: MessageEvent<string>) => {
             const timer2 = new Date;
             const answer = e.data;
