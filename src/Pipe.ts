@@ -6,9 +6,9 @@ import { BlockStatus, State } from './types/state';
 
 const mockTask = false; //mock调试模式
 const mockData = {
-    taskKey: "3229a9155ceb3a31",
+    taskKey: "6d51a7634d751481",
     puzzleSize: [4, 4],
-    isCrossMap: false,
+    isCrossMap: true,
 };
 
 // window.useRobot = true; //默认启用robot
@@ -19,10 +19,15 @@ type Direction = 'up' | 'down' | 'left' | 'right';
 export default class Pipe {
     graph: InitBlock[][];
     isCrossMap: boolean;
+    floorEntry: Position;
     answer?: string;
     constructor(graph: InitBlock[][], isCrossMap: boolean) {
         this.graph = graph;
         this.isCrossMap = isCrossMap;
+        this.floorEntry = {
+            x: Math.floor(graph.length / 2),
+            y: Math.floor(graph[0].length / 2),
+        };
     }
 
     initState = (graph: InitBlock[][]) => {
@@ -94,7 +99,9 @@ export default class Pipe {
                 console.log('clear queue', count++, pos);
 
                 const [x, y] = pos.split(',').map(i => +i);
-                if (!this.updatePoint(data, queue, this.clonePosition({ x, y }))) { return false; }
+                if (!this.updatePoint(data, queue, this.clonePosition({ x, y }))) {
+                    return false;
+                }
             }
         } catch (err) {
             console.error('clear queue error', err);
@@ -126,18 +133,21 @@ export default class Pipe {
     lockPointDownStatus = this.lockPointDirectionStatus.bind(null, 'down');
     lockPointLeftStatus = this.lockPointDirectionStatus.bind(null, 'left');
     lockPointRightStatus = this.lockPointDirectionStatus.bind(null, 'right');
-    disableNeighborLink = (p: Position, q: Position, data: State, queue: QueueType) => { //禁用相邻两节点间连接
+
+    applyNeighborLink = (status: boolean, p: Position, q: Position, data: State, queue: QueueType) => { //相邻两节点间连接
         if (this.checkPositionEqual(this.topPosition(p), q)) {
-            return this.lockPointUpStatus(data, queue, p, false);
+            return this.lockPointUpStatus(data, queue, p, status);
         } else if (this.checkPositionEqual(this.bottomPosition(p), q)) {
-            return this.lockPointDownStatus(data, queue, p, false);
+            return this.lockPointDownStatus(data, queue, p, status);
         } if (this.checkPositionEqual(this.leftPosition(p), q)) {
-            return this.lockPointLeftStatus(data, queue, p, false);
+            return this.lockPointLeftStatus(data, queue, p, status);
         } if (this.checkPositionEqual(this.rightPosition(p), q)) {
-            return this.lockPointRightStatus(data, queue, p, false);
+            return this.lockPointRightStatus(data, queue, p, status);
         }
         throw new Error('Nodes are not adjacent assert');
     }
+    checkNeighborLink = this.applyNeighborLink.bind(null, true); //选择相邻两节点间连接
+    disableNeighborLink = this.applyNeighborLink.bind(null, false); //禁用相邻两节点间连接
 
     isSolvedPosition = (data: State, p: Position): boolean => {
         const status = data.blockState[p.x][p.y]
@@ -223,7 +233,7 @@ export default class Pipe {
             // throw new Error('direction cnt assert');
             return false;
         } else if (directCurrTrueCnt === directionTotal) {
-            if (sharp === BlockTypeEnum.Sharp2 && (up !== down || left !== right)) { return false; }
+            if (sharp === BlockTypeEnum.Sharp2 && (up !== undefined && down !== undefined && up !== down || left !== undefined && right !== undefined && left !== right)) { return false; }
             if (sharp === BlockTypeEnum.Sharp3 && (up && down || left && right)) { return false; }
             //更新其余未完成的方向状态为 false
             if (up === undefined) if (!this.lockPointUpStatus(data, queue, p, false)) { return false; }
@@ -351,16 +361,85 @@ export default class Pipe {
         return true;
     }
 
+    updateCases = (data: State): 1 | 2 | false => {
+        const state = data.blockState;
+        //遍历未完成节点
+        for (let x of this.graph.keys())
+            for (let y of this.graph[0].keys()) {
+                if (!state[x][y].locked) {
+                    const p = { x, y };
+                    const pSet = this.generateSet(data, this.clonePosition(p));
+                    const neighbors = this.aroundTRBL(p).filter(i => i && !state[i.x][i.y].locked) as Position[];
+                    for (let q of neighbors) {
+                        if (pSet.exportPoints.has(`${q.x}_${q.y}`)) {
+                            let queue = new Set<string>();
+                            if (!this.disableNeighborLink(p, q, data, queue)) { return false; }
+                            if (!this.clearUpdateQueue(data, queue)) { return false; }
+                            return 1;
+                        }
+                    }
+                    if (pSet.exportPoints.size == 1) { //所属集合仅有单个开放点
+                        const [ePx, ePy] = [...pSet.exportPoints.values()][0].split('_');
+                        let eP = { x: +ePx, y: +ePy };
+                        if (this.checkPositionEqual(p, eP)) {
+                            for (let q of neighbors) {
+                                const qSet = this.generateSet(data, this.clonePosition(q));
+                                const floorPointStr = `${this.floorEntry.x}_${this.floorEntry.y}`;
+                                if (pSet.exportPoints.size === 1
+                                    && qSet.exportPoints.size === 1
+                                    && !pSet.lockedPoints.has(floorPointStr)
+                                    && !qSet.lockedPoints.has(floorPointStr)) { //两者都不包含水流起点，相连会生成封闭集合
+                                    let queue = new Set<string>();
+                                    if (!this.disableNeighborLink(p, q, data, queue)) { return false; }
+                                    if (!this.clearUpdateQueue(data, queue)) { return false; }
+                                    return 1;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        return 2;
+    }
+    findNext = (data: State): Position | false => { //寻找一个未完成的节点
+        for (let x of this.graph.keys())
+            for (let y of this.graph[0].keys()) {
+                if (!data.blockState[x][y].locked) {
+                    return { x, y };
+                }
+            }
+        return false;
+    }
     recu = (data: State): State | false => {
+        //推导已知情况
+        let cnt = 0;
+        do {
+            const res = this.updateCases(data);
+            if (res === false) { //更新动作失败
+                return false;
+            }
+            else if (res === 2) { //未做更新动作
+                if (this.verificate(data)) {
+                    return data; //返回答案
+                } else {
+                    break;
+                }
+            }
+            console.log(`recu time: ${cnt++}`)
+        } while (1);
 
-
-
-
-        // // 2. 判断两节点连接方案的正确性
-        // // 2.1 若两节点已属于同一集合，则两节点不可连接
-        // // 2.2 若两节点
-        // case 2 迁移到recu方案尝试逻辑中
-
+        //若不存在可推导情况，选择节点方案递归处理
+        return false; //test
+        const p = this.findNext(data);
+        const cases: any[] = []; //getCases(data,p);
+        for (let ca of cases) {
+            const nextState = this.cloneState(data.blockState);
+            //applyCases(nextState,ca);
+            return this.recu({
+                blockState: nextState,
+                currentRecuIndex: data.currentRecuIndex + 1,
+            });
+        }
 
         return false;
     }
@@ -388,7 +467,7 @@ export default class Pipe {
     verificate(data: State): boolean {
         const set = this.generateSet(data, { x: 0, y: 0 });
         //节点是否全连通
-        if (set.points.size !== this.graph.length * this.graph[0].length) { return false; }
+        if (set.lockedPoints.size !== this.graph.length * this.graph[0].length) { return false; }
         //节点是否不存在回路
         if (set.hasLoop) { return false; }
         //每个节点与相邻节点对应方向上的状态是否等价（循环判断右和下）
@@ -485,10 +564,10 @@ export default class Pipe {
                     }
                 }
                 const { status: { up, down, left, right } } = states[p.x][p.y];
-                up && addPoint(this.topPosition(p));
-                down && addPoint(this.bottomPosition(p));
-                left && addPoint(this.leftPosition(p));
-                right && addPoint(this.rightPosition(p));
+                up && this.isSolvedPosition(data, this.topPosition(p)) && addPoint(this.topPosition(p));
+                down && this.isSolvedPosition(data, this.bottomPosition(p)) && addPoint(this.bottomPosition(p));
+                left && this.isSolvedPosition(data, this.leftPosition(p)) && addPoint(this.leftPosition(p));
+                right && this.isSolvedPosition(data, this.rightPosition(p)) && addPoint(this.rightPosition(p));
             }
         } while (bfsQueue.length > 0);
 
@@ -536,28 +615,18 @@ export default class Pipe {
             hasLoop = calc();
         }
 
-        //通过节点度来统计集合的出口节点
-        let degreeMap = new Map([...points.values()].map(key => [key, 0]));
-        for (let e of edges.values()) {
-            const [p, q] = e.split(',');
-            degreeMap.set(p, degreeMap.has(p) ? degreeMap.get(p)! + 1 : 1);
-            degreeMap.set(q, degreeMap.has(q) ? degreeMap.get(q)! + 1 : 1);
-        }
-        let exportPoints = new Set<{ position: Position, direction: Direction }>();
-        for (let [pStr, degree] of degreeMap.entries()) {
-            const [x, y] = pStr.split('_').map(i => +i);
-            const state = states[x][y];
-            const directionTotal = { [BlockTypeEnum.Sharp1]: 1, [BlockTypeEnum.Sharp2]: 2, [BlockTypeEnum.Sharp3]: 2, [BlockTypeEnum.Sharp4]: 3 }[state.sharp];
-            if (degree < directionTotal) {
-                const { up, down, left, right } = state.status;
-                const dirMap: Direction[] = ['up', 'left', 'down', 'right'];
-                [up, down, left, right].map((v, ind) => v === undefined ? ind : undefined).filter(i => i).map(index => {
-                    exportPoints.add({ position: { x, y }, direction: dirMap[index!] });
-                })
+        let exportPoints = new Set<string>();
+        let lockedPoints = new Set<string>(); //`${p.x}_${p.y}`
+        for (let p of points.values()) {
+            const [x, y] = p.split('_');
+            if (states[+x][+y].locked) {
+                lockedPoints.add(p);
+            } else {
+                exportPoints.add(p);
             }
         }
 
-        return { points, edges, hasLoop, exportPoints };
+        return { lockedPoints, edges, hasLoop, exportPoints };
     }
 }
 
@@ -604,8 +673,7 @@ function registerWorkerWithBlob(config: {
         onmessage=${onmessage.toString()}
     `;
 
-    const sizeUrlParam = +Object.fromEntries([...new URL(location.href).searchParams]).size || 0;
-    const isCrossMap = [10, 11, 12, 13, 14, 15, 16, 17, 18, 19].includes(sizeUrlParam);
+    const isCrossMap = [10, 11, 12, 13, 14, 15, 16, 17, 18, 19].includes(Game.plSize);
     const taskKey: string = task;
     const tasks = Game.task;
     console.info('task', taskKey, tasks);

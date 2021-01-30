@@ -1,4 +1,4 @@
 
-declare const Game: { task: any[][] };
+declare const Game: { task: any[][], plSize: number };
 declare const task: string;
 
