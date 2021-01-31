@@ -6,8 +6,8 @@ import { BlockStatus, State } from './types/state';
 
 const mockTask = false; //mock调试模式
 const mockData = {
-    taskKey: "6d51a7634d751481",
-    puzzleSize: [4, 4],
+    taskKey: "795118885389c1e7316448b5e8292168ba77651e41eb9b357d17b9473b581d5dad697b291ea4bc83b49b565d755475482578 ",
+    puzzleSize: [10, 10],
     isCrossMap: true,
 };
 
@@ -15,6 +15,10 @@ const mockData = {
 
 type QueueType = Set<string>;
 type Direction = 'up' | 'down' | 'left' | 'right';
+type Case = {
+    position: Position,
+    directions: Direction[],
+};
 
 export default class Pipe {
     graph: InitBlock[][];
@@ -71,8 +75,11 @@ export default class Pipe {
         }
     }
 
-    cloneState = function <T>(arr: T[][]) { //深拷贝二维数组
-        return arr.map(a => a.map(b => b));
+    // cloneState = function <T extends Object>(arr: T[][]) { //深拷贝二维数组
+    //     return arr.map(a => a.map(b => b));
+    // }
+    cloneState = function <T extends Object>(arr: T[][]) { //深拷贝二维对象数组
+        return arr.map(a => a.map(b => JSON.parse(JSON.stringify(b))));
     }
     checkBoundary = (p: Position): boolean => {
         return !(p.x < 0 || p.x >= this.graph.length || p.y < 0 || p.y >= this.graph[0].length);
@@ -167,6 +174,19 @@ export default class Pipe {
         return result;
     }
 
+    getDirectionLink = (data: State, p: Position, q: Position): boolean | undefined => { //获取两相邻节点的方向状态
+        const states = data.blockState, pStatus = states[p.x][p.y].status, qStatus = states[q.x][q.y].status;
+        if (this.checkPositionEqual(this.topPosition(p), q)) {
+            return pStatus.up;
+        } else if (this.checkPositionEqual(this.bottomPosition(p), q)) {
+            return pStatus.down;
+        } if (this.checkPositionEqual(this.leftPosition(p), q)) {
+            return pStatus.left;
+        } if (this.checkPositionEqual(this.rightPosition(p), q)) {
+            return pStatus.right;
+        }
+        throw new Error('Nodes are not adjacent assert');
+    }
     checkDirectionLink = (data: State, p: Position, q: Position): boolean => { //判断两相邻节点的方向状态等价情况
         const check = (a?: boolean, b?: boolean) => a === undefined || b === undefined || a === b
         const states = data.blockState, pStatus = states[p.x][p.y].status, qStatus = states[q.x][q.y].status;
@@ -383,16 +403,36 @@ export default class Pipe {
                         let eP = { x: +ePx, y: +ePy };
                         if (this.checkPositionEqual(p, eP)) {
                             for (let q of neighbors) {
+                                if (this.getDirectionLink(data, p, q) !== undefined) { continue; }
+
                                 const qSet = this.generateSet(data, this.clonePosition(q));
                                 const floorPointStr = `${this.floorEntry.x}_${this.floorEntry.y}`;
                                 if (pSet.exportPoints.size === 1
                                     && qSet.exportPoints.size === 1
                                     && !pSet.lockedPoints.has(floorPointStr)
                                     && !qSet.lockedPoints.has(floorPointStr)) { //两者都不包含水流起点，相连会生成封闭集合
-                                    let queue = new Set<string>();
-                                    if (!this.disableNeighborLink(p, q, data, queue)) { return false; }
-                                    if (!this.clearUpdateQueue(data, queue)) { return false; }
-                                    return 1;
+
+                                    const positionRest = (data: State, position: Position) => {
+                                        const posState = data.blockState[position.x][position.y];
+                                        const totalMap = { [BlockTypeEnum.Sharp1]: 1, [BlockTypeEnum.Sharp2]: 2, [BlockTypeEnum.Sharp3]: 2, [BlockTypeEnum.Sharp4]: 3 };
+                                        const upPos = this.topPosition({ x, y });
+                                        const downPos = this.bottomPosition({ x, y });
+                                        const leftPos = this.leftPosition({ x, y });
+                                        const rightPos = this.rightPosition({ x, y });
+
+                                        let linkedPoints = 0;
+                                        posState.status.up && data.blockState[upPos.x][upPos.y].locked && linkedPoints++;
+                                        posState.status.down && data.blockState[downPos.x][downPos.y].locked && linkedPoints++;
+                                        posState.status.left && data.blockState[leftPos.x][leftPos.y].locked && linkedPoints++;
+                                        posState.status.right && data.blockState[rightPos.x][rightPos.y].locked && linkedPoints++;
+                                        return totalMap[posState.sharp] - linkedPoints;
+                                    }
+                                    if (positionRest(data, p) === 1 && positionRest(data, q) === 1) {
+                                        let queue = new Set<string>();
+                                        if (!this.disableNeighborLink(p, q, data, queue)) { return false; }
+                                        if (!this.clearUpdateQueue(data, queue)) { return false; }
+                                        return 1;
+                                    }
                                 }
                             }
                         }
@@ -409,6 +449,68 @@ export default class Pipe {
                 }
             }
         return false;
+    }
+    getCases = (data: State, p: Position): Case[] => {
+        const { x, y } = p, status = data.blockState[x][y];
+        if (status.locked) { return []; }
+
+        const { sharp, status: { up, down, left, right } } = status;
+        const directionTotal = { [BlockTypeEnum.Sharp1]: 1, [BlockTypeEnum.Sharp2]: 2, [BlockTypeEnum.Sharp3]: 2, [BlockTypeEnum.Sharp4]: 3 }[sharp];
+        const directCurrTrueCnt = [up, left, down, right].filter(i => i === true).length;
+        const directCurrFalseCnt = [up, left, down, right].filter(i => i === false).length;
+        if (sharp === BlockTypeEnum.Sharp1) {
+            if (directCurrTrueCnt >= 1) { return []; }
+            let res: Case[] = [];
+            up === undefined && res.push({ position: this.clonePosition(p), directions: ['up'] });
+            down === undefined && res.push({ position: this.clonePosition(p), directions: ['down'] });
+            left === undefined && res.push({ position: this.clonePosition(p), directions: ['left'] });
+            right === undefined && res.push({ position: this.clonePosition(p), directions: ['right'] });
+            return res;
+        } else if (sharp === BlockTypeEnum.Sharp2) {
+            if (directCurrTrueCnt >= 1 || directCurrFalseCnt >= 1) { return []; }
+            let res: Case[] = [];
+            res.push({ position: this.clonePosition(p), directions: ['up', 'down'] });
+            res.push({ position: this.clonePosition(p), directions: ['left', 'right'] });
+            return res;
+        } else if (sharp === BlockTypeEnum.Sharp3) {
+            if (directCurrTrueCnt >= 2 || directCurrFalseCnt >= 2) { return []; }
+            let res: Case[] = [];
+            if (up === undefined || down === undefined) {
+                if (left === undefined && right === undefined) {
+                    res.push({ position: this.clonePosition(p), directions: ['up', 'left'] });
+                    res.push({ position: this.clonePosition(p), directions: ['down', 'left'] });
+                    res.push({ position: this.clonePosition(p), directions: ['up', 'right'] });
+                    res.push({ position: this.clonePosition(p), directions: ['down', 'right'] });
+                } else {
+                    up === undefined && res.push({ position: this.clonePosition(p), directions: ['up'] });
+                    down === undefined && res.push({ position: this.clonePosition(p), directions: ['down'] });
+                }
+            } else {
+                left === undefined && res.push({ position: this.clonePosition(p), directions: ['left'] });
+                right === undefined && res.push({ position: this.clonePosition(p), directions: ['right'] });
+            }
+            return res;
+        } else if (sharp === BlockTypeEnum.Sharp4) {
+            if (directCurrTrueCnt >= 3 || directCurrFalseCnt >= 1) { return []; }
+            let res: Case[] = [];
+            up === undefined && res.push({ position: this.clonePosition(p), directions: ['up'] });
+            down === undefined && res.push({ position: this.clonePosition(p), directions: ['down'] });
+            left === undefined && res.push({ position: this.clonePosition(p), directions: ['left'] });
+            right === undefined && res.push({ position: this.clonePosition(p), directions: ['right'] });
+            return res;
+        }
+        return [];
+    }
+    applyCase = (data: State, ca: Case) => {
+        const { position, directions } = ca;
+        let queue = new Set<string>();
+        for (let dir of directions) {
+            if (!this.lockPointDirectionStatus(dir, data, queue, position, true)) {
+                return false;
+            }
+        }
+        if (!this.clearUpdateQueue(data, queue)) { return false; }
+        return true;
     }
     recu = (data: State): State | false => {
         //推导已知情况
@@ -429,16 +531,22 @@ export default class Pipe {
         } while (1);
 
         //若不存在可推导情况，选择节点方案递归处理
-        return false; //test
         const p = this.findNext(data);
-        const cases: any[] = []; //getCases(data,p);
-        for (let ca of cases) {
-            const nextState = this.cloneState(data.blockState);
-            //applyCases(nextState,ca);
-            return this.recu({
-                blockState: nextState,
-                currentRecuIndex: data.currentRecuIndex + 1,
-            });
+        if (p) {
+            const cases = this.getCases(data, p);
+            for (let ca of cases) {
+                const nextState = {
+                    blockState: this.cloneState(data.blockState),
+                    currentRecuIndex: data.currentRecuIndex + 1,
+                }
+                if (this.applyCase(nextState, ca)) {
+                    const res = this.recu(nextState);
+                    if (res) { return res; }
+                }
+            }
+        } else {
+            if (this.verificate(data)) { return data; }
+            else { return false; }
         }
 
         return false;
@@ -626,6 +734,19 @@ export default class Pipe {
             }
         }
 
+        for (let p of lockedPoints) {
+            const [sx, sy] = p.split('_'), x = +sx, y = +sy;
+            const { status: { up, down, left, right } } = states[x][y];
+            const upPos = this.topPosition({ x, y });
+            const downPos = this.bottomPosition({ x, y });
+            const leftPos = this.leftPosition({ x, y });
+            const rightPos = this.rightPosition({ x, y });
+            if (up && !states[upPos.x][upPos.y].locked) { exportPoints.add(formatPoint(upPos)); }
+            if (down && !states[downPos.x][downPos.y].locked) { exportPoints.add(formatPoint(downPos)); }
+            if (left && !states[leftPos.x][leftPos.y].locked) { exportPoints.add(formatPoint(leftPos)); }
+            if (right && !states[rightPos.x][rightPos.y].locked) { exportPoints.add(formatPoint(rightPos)); }
+        }
+
         return { lockedPoints, edges, hasLoop, exportPoints };
     }
 }
@@ -662,8 +783,8 @@ function registerWorkerWithBlob(config: {
 
     const onmessage = (e: MessageEvent) => {
         const { tasks, isCrossMap } = JSON.parse(e.data);
-        const lightup = new Pipe(tasks, isCrossMap);
-        const answer = lightup.solve();
+        const pipe = new Pipe(tasks, isCrossMap);
+        const answer = pipe.solve();
         (postMessage as any)(answer);
     }
     //此处采用hack写法，需要写进所有依赖函数
