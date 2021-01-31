@@ -11,7 +11,7 @@ const mockData = {
     isCrossMap: true,
 };
 
-// window.useRobot = true; //默认启用robot
+window.useRobot = true; //默认启用robot
 
 type QueueType = Set<string>;
 type Direction = 'up' | 'down' | 'left' | 'right';
