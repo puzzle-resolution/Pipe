@@ -6,7 +6,7 @@ import { BlockStatus, State } from './types/state';
 
 const mockTask = false; //mock调试模式
 const mockData = {
-    taskKey: "795118885389c1e7316448b5e8292168ba77651e41eb9b357d17b9473b581d5dad697b291ea4bc83b49b565d755475482578 ",
+    taskKey: "2a5d4323125ec5271468e745de17d49c43d44ea8e6d7bdeb97e1ae4aeaa7e82281de828127dd33b64a1e3a23a837824c1ebc",
     puzzleSize: [10, 10],
     isCrossMap: true,
 };
@@ -415,10 +415,10 @@ export default class Pipe {
                                     const positionRest = (data: State, position: Position) => {
                                         const posState = data.blockState[position.x][position.y];
                                         const totalMap = { [BlockTypeEnum.Sharp1]: 1, [BlockTypeEnum.Sharp2]: 2, [BlockTypeEnum.Sharp3]: 2, [BlockTypeEnum.Sharp4]: 3 };
-                                        const upPos = this.topPosition({ x, y });
-                                        const downPos = this.bottomPosition({ x, y });
-                                        const leftPos = this.leftPosition({ x, y });
-                                        const rightPos = this.rightPosition({ x, y });
+                                        const upPos = this.topPosition(position);
+                                        const downPos = this.bottomPosition(position);
+                                        const leftPos = this.leftPosition(position);
+                                        const rightPos = this.rightPosition(position);
 
                                         let linkedPoints = 0;
                                         posState.status.up && data.blockState[upPos.x][upPos.y].locked && linkedPoints++;
@@ -769,14 +769,14 @@ function registerWorkerWithBlob(config: {
     if (mockTask) {
         const { puzzleSize, taskKey, isCrossMap } = mockData;
         const tasks: InitBlock[][] = parseTask(taskKey, ...puzzleSize as [number, number]);
-        console.log('task', taskKey, tasks);
+        console.info('task', taskKey, tasks);
 
         const pipe = new Pipe(tasks, isCrossMap);
         const timer1 = new Date;
         const answer = pipe.solve();
         const timer2 = new Date;
-        console.log('answer', answer);
-        console.log('耗时', timer2.valueOf() - timer1.valueOf(), 'ms');
+        console.info('answer', answer);
+        console.info('耗时', timer2.valueOf() - timer1.valueOf(), 'ms');
         return;
     }
 
