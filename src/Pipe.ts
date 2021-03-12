@@ -6,12 +6,14 @@ import { BlockStatus, State } from './types/state';
 
 const mockTask = false; //mock调试模式
 const mockData = {
-    taskKey: "2a5d4323125ec5271468e745de17d49c43d44ea8e6d7bdeb97e1ae4aeaa7e82281de828127dd33b64a1e3a23a837824c1ebc",
-    puzzleSize: [10, 10],
+    taskKey: "c8c675115573748e26dbc448d2199624a3d741a5b954c715b648d4b19447851348425d7d7963ae958a58bc39964d15aaee9437d972275e35cebb4a216a1e1414a6c15d38dbaaebde933b4b6d4ba73ae6584d83dd3441193c99415d7a3314b5d54eeea47b4a8828cd448bb437628aed77a873825d7e6ce6e8a99b2bedaa5982b53c5595c82a123a28573192231948d1dd344aa1b687758881a19847ade772aa9c57dd98b5c459d56aed12751baad49aecc28bcc38663d6223dca29b85d2b6a5e497aa6a16dbe7cade77297421e794edb63553d6414e468d9c33de7ec16c1eb5ea24de531d8a844bbd1a19ad261a6d516b284a1ebaeaae344da71d154c2281451aeea8d79ced569eceac6647b9ec84dd9bb7d68b8b7a1da9e1a35cdd31517a56371a4b1ebe66d695db5c8cd2b7842c5aab2d9a5428d35ebb1dc469d15b87b2bb4e4a128e78971e92e883382b98716b349d6b5785671a89747c89eccdd473b6515723ba6b854155333772ae7359754937b8791e99b86e9111925c18548bc37da8b71ac2eb8612523cbdbeee15a415d35333a8a3d397d7635aa44e4242c22231bea6e8a88d3447e4b5921413e83121318acc7b4a4c7713d2b9cb71da9a93835d4295ca2d ",
+    puzzleSize: [30, 30],
     isCrossMap: true,
 };
 
-window.useRobot = true; //默认启用robot
+try {
+    window.useRobot = true; //默认启用robot
+} catch (e) { }
 
 type QueueType = Set<string>;
 type Direction = 'up' | 'down' | 'left' | 'right';
@@ -394,8 +396,10 @@ export default class Pipe {
                         if (pSet.exportPoints.has(`${q.x}_${q.y}`)) {
                             let queue = new Set<string>();
                             if (!this.disableNeighborLink(p, q, data, queue)) { return false; }
-                            if (!this.clearUpdateQueue(data, queue)) { return false; }
-                            return 1;
+                            if (queue.size > 0) { //存在有效更新
+                                if (!this.clearUpdateQueue(data, queue)) { return false; }
+                                return 1;
+                            }
                         }
                     }
                     if (pSet.exportPoints.size == 1) { //所属集合仅有单个开放点
@@ -430,8 +434,10 @@ export default class Pipe {
                                     if (positionRest(data, p) === 1 && positionRest(data, q) === 1) {
                                         let queue = new Set<string>();
                                         if (!this.disableNeighborLink(p, q, data, queue)) { return false; }
-                                        if (!this.clearUpdateQueue(data, queue)) { return false; }
-                                        return 1;
+                                        if (queue.size > 0) { //存在有效更新
+                                            if (!this.clearUpdateQueue(data, queue)) { return false; }
+                                            return 1;
+                                        }
                                     }
                                 }
                             }
